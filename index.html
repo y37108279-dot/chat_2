@@ -661,8 +661,8 @@
     }
     .qr-img-wrap img {
       display: block;
-      width: 200px;
-      height: 200px;
+      width: 280px;
+      height: 280px;
     }
     .qr-close {
       width: 100%;
@@ -1242,7 +1242,7 @@
   function showQR(textareaId, title) {
     const text = document.getElementById(textareaId).value.trim();
     if (!text) { toast('先にテキストを生成してください'); return; }
-    const url = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&ecc=M&data=' + encodeURIComponent(text);
+    const url = 'https://api.qrserver.com/v1/create-qr-code/?size=350x350&ecc=L&data=' + encodeURIComponent(text);
     document.getElementById('qr-title').textContent = title;
     document.getElementById('qr-img').src = url;
     document.getElementById('qr-overlay').classList.add('open');
