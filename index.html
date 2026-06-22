@@ -964,19 +964,28 @@
       setupDataChannel(e.channel);
     };
 
-    // ─── Trickle ICE: DataChannel が開いたら candidate を送る ──
-    pc.onicecandidate = (e) => {
-      if (e.candidate && dc && dc.readyState === 'open') {
-        dc.send(JSON.stringify({ type: 'candidate', candidate: e.candidate }));
-      }
-    };
+  }
+
+  // ─── Vanilla ICE: 全 candidate 収集を待つ ─────────────────
+  function waitForICE(pc) {
+    return new Promise(resolve => {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      const check = () => {
+        if (pc.iceGatheringState === 'complete') {
+          pc.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      };
+      pc.addEventListener('icegatheringstatechange', check);
+      setTimeout(resolve, 4000); // 最大4秒で強制進行
+    });
   }
 
   // ─── Offerer: Create Offer ────────────────────────────────
   async function createOffer() {
     const btn = document.getElementById('btn-create-offer');
     btn.disabled = true;
-    btn.innerHTML = '<span style="opacity:.6">生成中...</span>';
+    btn.innerHTML = '<span style="opacity:.6">ICE 収集中...</span>';
     role = 'offerer';
 
     createPC();
@@ -986,6 +995,8 @@
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+
+    await waitForICE(pc); // SDP に全 candidate を含めてから出力
 
     const payload = { type: 'offer', sdp: pc.localDescription.sdp };
     document.getElementById('offer-out').value = btoa(JSON.stringify(payload));
@@ -1037,6 +1048,8 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      await waitForICE(pc); // SDP に全 candidate を含めてから出力
+
       const payload = { type: 'answer', sdp: pc.localDescription.sdp };
       document.getElementById('answer-out').value = btoa(JSON.stringify(payload));
       document.getElementById('field-answer-out').style.display = '';
@@ -1060,13 +1073,9 @@
       document.getElementById('msg-input').focus();
     };
 
-    dc.onmessage = async (e) => {
+    dc.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type === 'candidate') {
-        try { await pc.addIceCandidate(msg.candidate); } catch {}
-        return;
-      }
       addMessage(msg.name, msg.text, false);
     };
 
