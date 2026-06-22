@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>P2P Chat — WebRTC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-deep: #0a0a0f;
+      --bg-mid: #0f0f1a;
+      --glass-bg: rgba(255, 255, 255, 0.04);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-hover: rgba(255, 255, 255, 0.07);
+      --accent: #7c6af7;
+      --accent-light: #a89cf8;
+      --accent-glow: rgba(124, 106, 247, 0.3);
+      --accent2: #3ecfcf;
+      --text-primary: #f0f0f8;
+      --text-secondary: rgba(240, 240, 248, 0.55);
+      --text-muted: rgba(240, 240, 248, 0.3);
+      --success: #4ade80;
+      --warning: #facc15;
+      --danger: #f87171;
+      --bubble-self: linear-gradient(135deg, #7c6af7, #5b4de0);
+      --bubble-other: rgba(255, 255, 255, 0.07);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* Animated gradient orbs */
+    body::before, body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.18;
+      pointer-events: none;
+    }
+    body::before {
+      width: 520px;
+      height: 520px;
+      background: radial-gradient(circle, #7c6af7 0%, transparent 70%);
+      top: -120px;
+      left: -120px;
+      animation: floatOrb 12s ease-in-out infinite alternate;
+    }
+    body::after {
+      width: 420px;
+      height: 420px;
+      background: radial-gradient(circle, #3ecfcf 0%, transparent 70%);
+      bottom: -100px;
+      right: -100px;
+      animation: floatOrb 10s ease-in-out infinite alternate-reverse;
+    }
+
+    @keyframes floatOrb {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(30px, 20px) scale(1.1); }
+    }
+
+    /* ─── Layout ─────────────────────────────────────────── */
+    .screen {
+      display: none;
+      width: 100%;
+      height: 100%;
+    }
+    .screen.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ─── Card ────────────────────────────────────────────── */
+    .card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-xl);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 480px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─── Typography ──────────────────────────────────────── */
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .logo-text {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      background: linear-gradient(90deg, var(--text-primary), var(--accent-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .card-title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+    .card-sub {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+
+    /* ─── Inputs ──────────────────────────────────────────── */
+    .field {
+      margin-bottom: 16px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+    .field input,
+    .field textarea {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 12px 14px;
+      outline: none;
+      resize: vertical;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+    .field input:focus,
+    .field textarea:focus {
+      border-color: var(--accent);
+      background: rgba(124, 106, 247, 0.06);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .field input::placeholder,
+    .field textarea::placeholder {
+      color: var(--text-muted);
+    }
+    .field textarea {
+      min-height: 100px;
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* ─── Buttons ─────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 12px 20px;
+      transition: transform 0.15s, box-shadow 0.15s, background 0.2s, opacity 0.15s;
+      position: relative;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0);
+      transition: background 0.15s;
+    }
+    .btn:hover::after { background: rgba(255,255,255,0.06); }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #5b4de0);
+      color: #fff;
+      width: 100%;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 6px 24px rgba(124,106,247,0.5);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--glass-bg);
+      color: var(--text-primary);
+      border: 1px solid var(--glass-border);
+      flex: 1;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--glass-hover);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--glass-border);
+      flex: 1;
+    }
+    .btn-ghost:hover:not(:disabled) {
+      color: var(--text-primary);
+      background: var(--glass-bg);
+    }
+
+    .btn-icon {
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      transition: color 0.2s, background 0.2s;
+    }
+    .btn-icon:hover {
+      color: var(--text-primary);
+      background: var(--glass-hover);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    /* ─── Status badge ────────────────────────────────────── */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-disconnected {
+      background: rgba(248,113,113,0.1);
+      border-color: rgba(248,113,113,0.3);
+      color: var(--danger);
+    }
+    .status-disconnected .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 6px var(--danger);
+    }
+    .status-connecting {
+      background: rgba(250,204,21,0.1);
+      border-color: rgba(250,204,21,0.3);
+      color: var(--warning);
+    }
+    .status-connecting .status-dot {
+      background: var(--warning);
+      box-shadow: 0 0 6px var(--warning);
+      animation: pulse 1s infinite;
+    }
+    .status-connected {
+      background: rgba(74,222,128,0.1);
+      border-color: rgba(74,222,128,0.3);
+      color: var(--success);
+    }
+    .status-connected .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── Divider ─────────────────────────────────────────── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--glass-border);
+    }
+
+    /* ─── Toast ───────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: rgba(30, 30, 50, 0.9);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-md);
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      backdrop-filter: blur(16px);
+      z-index: 9999;
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ─── SCREEN: Welcome ─────────────────────────────────── */
+    #screen-welcome .card {
+      text-align: center;
+    }
+    #screen-welcome .logo {
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+    #screen-welcome .card-title {
+      font-size: 30px;
+    }
+    #screen-welcome .card-sub {
+      margin-bottom: 32px;
+    }
+
+    /* ─── SCREEN: Connect ─────────────────────────────────── */
+    #screen-connect {
+      padding: 16px;
+      overflow-y: auto;
+    }
+    #screen-connect .card {
+      max-width: 540px;
+      margin: auto;
+    }
+    .connect-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .connect-header .logo { margin-bottom: 0; }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(124,106,247,0.12);
+      border: 1px solid rgba(124,106,247,0.25);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent-light);
+    }
+    .user-chip .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* ─── SCREEN: Chat ────────────────────────────────────── */
+    #screen-chat {
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+    }
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100vh;
+      max-width: 680px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Chat topbar */
+    .chat-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: var(--glass-bg);
+      border-bottom: 1px solid var(--glass-border);
+      backdrop-filter: blur(24px);
+      flex-shrink: 0;
+      gap: 12px;
+    }
+    .chat-topbar .logo { margin-bottom: 0; }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    /* Messages area */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+    }
+
+    /* Individual message */
+    .msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 72%;
+      animation: msgIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .msg.self { align-self: flex-end; align-items: flex-end; }
+    .msg.other { align-self: flex-start; align-items: flex-start; }
+
+    .msg-meta {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      letter-spacing: 0.2px;
+    }
+    .msg.self .msg-meta { color: rgba(168,156,248,0.5); }
+
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      line-height: 1.55;
+      word-break: break-word;
+      position: relative;
+    }
+    .msg.self .msg-bubble {
+      background: var(--bubble-self);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 4px 12px rgba(124,106,247,0.3);
+    }
+    .msg.other .msg-bubble {
+      background: var(--bubble-other);
+      color: var(--text-primary);
+      border: 1px solid var(--glass-border);
+      border-bottom-left-radius: 4px;
+      backdrop-filter: blur(8px);
+    }
+
+    .msg-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* System message */
+    .msg-system {
+      align-self: center;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* Chat input bar */
+    .chat-inputbar {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 14px 16px;
+      background: var(--glass-bg);
+      border-top: 1px solid var(--glass-border);
+      backdrop-filter: blur(24px);
+      flex-shrink: 0;
+    }
+    .chat-inputbar textarea {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 10px 14px;
+      outline: none;
+      resize: none;
+      min-height: 44px;
+      max-height: 120px;
+      overflow-y: auto;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .chat-inputbar textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .chat-inputbar textarea::placeholder { color: var(--text-muted); }
+    .send-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent), #5b4de0);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px var(--accent-glow);
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    }
+    .send-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(124,106,247,0.5);
+    }
+    .send-btn:active { transform: scale(0.95); }
+    .send-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; }
+
+    /* ─── Responsive ──────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .card { padding: 28px 20px; border-radius: var(--radius-lg); }
+      .card-title { font-size: 22px; }
+      .chat-container { max-width: 100%; }
+      .msg { max-width: 85%; }
+      .connect-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+    }
+
+    /* ─── QR Modal ───────────────────────────────────────── */
+    .qr-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(6px);
+      z-index: 8888;
+      align-items: center;
+      justify-content: center;
+    }
+    .qr-overlay.open { display: flex; }
+    .qr-box {
+      background: rgba(20,20,36,0.95);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-xl);
+      padding: 32px 28px 24px;
+      text-align: center;
+      max-width: 300px;
+      width: 90%;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+      animation: qrIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes qrIn {
+      from { opacity:0; transform: scale(0.88); }
+      to   { opacity:1; transform: scale(1); }
+    }
+    .qr-box h3 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+    .qr-box p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+    .qr-img-wrap {
+      background: #fff;
+      border-radius: var(--radius-md);
+      padding: 10px;
+      display: inline-block;
+      margin-bottom: 18px;
+    }
+    .qr-img-wrap img {
+      display: block;
+      width: 200px;
+      height: 200px;
+    }
+    .qr-close {
+      width: 100%;
+    }
+
+    /* ─── Collapsible section ─────────────────────────────── */
+    .collapse-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0;
+      width: 100%;
+      text-align: left;
+      transition: color 0.2s;
+    }
+    .collapse-toggle:hover { color: var(--text-primary); }
+    .collapse-toggle .chevron {
+      transition: transform 0.2s;
+      display: inline-block;
+      font-style: normal;
+    }
+    .collapse-toggle[aria-expanded="false"] .chevron { transform: rotate(-90deg); }
+    .collapsible-body {
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+    .collapsible-body.closed { max-height: 0 !important; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     SCREEN 1: WELCOME / USERNAME
+═══════════════════════════════════════════ -->
+<div id="screen-welcome" class="screen active">
+  <div class="card">
+    <div class="logo" style="justify-content:center; margin-bottom:28px;">
+      <div class="logo-icon">⚡</div>
+      <span class="logo-text">P2P Chat</span>
+    </div>
+    <h1 class="card-title">サーバーなしで<br>つながろう</h1>
+    <p class="card-sub">
+      WebRTC を使ったサーバーレスの 1 対 1 チャット。<br>
+      まず、あなたの名前を入力してください。
+    </p>
+    <div class="field">
+      <label for="username-input">あなたの名前</label>
+      <input id="username-input" type="text" placeholder="例：Alice" maxlength="24" autocomplete="off" />
+    </div>
+    <button class="btn btn-primary" id="btn-enter" onclick="enterApp()" style="margin-top:8px;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      始める
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN 2: CONNECTION SETUP
+═══════════════════════════════════════════ -->
+<div id="screen-connect" class="screen">
+  <div class="card">
+    <div class="connect-header">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-text">P2P Chat</span>
+      </div>
+      <div class="user-chip">
+        <div class="avatar" id="header-avatar"></div>
+        <span id="header-username"></span>
+      </div>
+    </div>
+
+    <div id="conn-status-wrap" style="margin-bottom:20px; display:flex; align-items:center; gap:10px;">
+      <div class="status-badge status-disconnected" id="conn-status-badge">
+        <span class="status-dot"></span>
+        <span id="conn-status-text">未接続</span>
+      </div>
+    </div>
+
+    <!-- ── STEP A: Create Offer ── -->
+    <section id="section-offer" style="margin-bottom:12px;">
+      <button class="collapse-toggle" aria-expanded="true" onclick="toggleSection(this,'body-offer')">
+        <span class="chevron">▾</span>
+        STEP 1 — ルームを作る（Offer 側）
+      </button>
+      <div class="collapsible-body" id="body-offer" style="max-height:600px;">
+        <div style="padding-top:14px;">
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.6;">
+            「Offer を作る」ボタンを押して生成された Offer テキストをコピーし、相手に送ってください。
+            相手から返ってきた Answer をここに貼り付けて「Answer を適用」してください。
+          </p>
+          <button class="btn btn-secondary" id="btn-create-offer" onclick="createOffer()" style="width:100%; margin-bottom:12px;">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            Offer を作る
+          </button>
+
+          <div class="field" id="field-offer-out" style="display:none;">
+            <label>生成された Offer（相手に送る）</label>
+            <textarea id="offer-out" readonly rows="4"></textarea>
+            <div class="btn-row">
+              <button class="btn btn-ghost" onclick="copyText('offer-out')">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                コピー
+              </button>
+              <button class="btn btn-ghost" onclick="showQR('offer-out','Offer QR')">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="5" y="5" width="3" height="3"/><rect x="16" y="5" width="3" height="3"/><rect x="5" y="16" width="3" height="3"/><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3"/></svg>
+                QR
+              </button>
+            </div>
+          </div>
+
+          <div class="field" id="field-answer-in" style="display:none;">
+            <label>相手の Answer をここに貼り付け</label>
+            <textarea id="answer-in" rows="4" placeholder="相手が送ってきた Answer テキストを貼り付け..."></textarea>
+            <div class="btn-row">
+              <button class="btn btn-secondary" onclick="applyAnswer()">Answer を適用して接続</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider">または</div>
+
+    <!-- ── STEP B: Answer ── -->
+    <section id="section-answer" style="margin-bottom:4px;">
+      <button class="collapse-toggle" aria-expanded="true" onclick="toggleSection(this,'body-answer')">
+        <span class="chevron">▾</span>
+        STEP 2 — 招待を受ける（Answer 側）
+      </button>
+      <div class="collapsible-body" id="body-answer" style="max-height:600px;">
+        <div style="padding-top:14px;">
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.6;">
+            相手から受け取った Offer を貼り付けて「Answer を作る」を押してください。
+            生成された Answer テキストを相手に送ってください。
+          </p>
+          <div class="field">
+            <label>相手の Offer をここに貼り付け</label>
+            <textarea id="offer-in" rows="4" placeholder="相手が送ってきた Offer テキストを貼り付け..."></textarea>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" onclick="createAnswer()">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              Answer を作る
+            </button>
+          </div>
+
+          <div class="field" id="field-answer-out" style="display:none; margin-top:12px;">
+            <label>生成された Answer（相手に送る）</label>
+            <textarea id="answer-out" readonly rows="4"></textarea>
+            <div class="btn-row">
+              <button class="btn btn-ghost" onclick="copyText('answer-out')">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                コピー
+              </button>
+              <button class="btn btn-ghost" onclick="showQR('answer-out','Answer QR')">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="5" y="5" width="3" height="3"/><rect x="16" y="5" width="3" height="3"/><rect x="5" y="16" width="3" height="3"/><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3"/></svg>
+                QR
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN 3: CHAT
+═══════════════════════════════════════════ -->
+<div id="screen-chat" class="screen">
+  <div class="chat-container">
+
+    <!-- Topbar -->
+    <div class="chat-topbar">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-text">P2P Chat</span>
+      </div>
+      <div class="topbar-right">
+        <div class="status-badge status-connected" id="chat-status-badge">
+          <span class="status-dot"></span>
+          <span>接続済み</span>
+        </div>
+        <button class="btn-icon" title="切断して戻る" onclick="disconnect()">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" id="messages"></div>
+
+    <!-- Input bar -->
+    <div class="chat-inputbar">
+      <textarea
+        id="msg-input"
+        placeholder="メッセージを入力… (Enter で送信)"
+        rows="1"
+        onkeydown="handleMsgKey(event)"
+        oninput="autoResize(this)"
+        maxlength="2000"
+      ></textarea>
+      <button class="send-btn" id="btn-send" onclick="sendMessage()" disabled>
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- QR Modal -->
+<div class="qr-overlay" id="qr-overlay" onclick="closeQR(event)">
+  <div class="qr-box">
+    <h3 id="qr-title">QR コード</h3>
+    <p>相手のカメラでスキャンしてください</p>
+    <div class="qr-img-wrap">
+      <img id="qr-img" src="" alt="QR Code" />
+    </div>
+    <button class="btn btn-ghost qr-close" onclick="document.getElementById('qr-overlay').classList.remove('open')">閉じる</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  // ─── State ────────────────────────────────────────────────
+  let myName = '';
+  let pc = null;         // RTCPeerConnection
+  let dc = null;         // RTCDataChannel
+  let role = null;       // 'offerer' | 'answerer'
+
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ]
+  };
+
+  // ─── Screens ──────────────────────────────────────────────
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  // ─── Welcome ──────────────────────────────────────────────
+  document.getElementById('username-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') enterApp();
+  });
+
+  function enterApp() {
+    const val = document.getElementById('username-input').value.trim();
+    if (!val) {
+      toast('名前を入力してください');
+      document.getElementById('username-input').focus();
+      return;
+    }
+    myName = val;
+    document.getElementById('header-username').textContent = myName;
+    document.getElementById('header-avatar').textContent = myName.charAt(0).toUpperCase();
+    showScreen('screen-connect');
+  }
+
+  // ─── RTCPeerConnection setup ──────────────────────────────
+  function createPC() {
+    if (pc) {
+      pc.close();
+    }
+    pc = new RTCPeerConnection(ICE_CONFIG);
+
+    updateStatus('connecting');
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === 'connected' || state === 'completed') {
+        updateStatus('connected');
+      } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        if (document.getElementById('screen-chat').classList.contains('active')) {
+          addSystemMsg('接続が切断されました');
+          updateChatStatus('disconnected');
+          document.getElementById('btn-send').disabled = true;
+          document.getElementById('msg-input').disabled = true;
+        } else {
+          updateStatus('disconnected');
+        }
+      }
+    };
+
+    pc.ondatachannel = e => {
+      setupDataChannel(e.channel);
+    };
+
+    // ─── Trickle ICE: DataChannel が開いたら candidate を送る ──
+    pc.onicecandidate = (e) => {
+      if (e.candidate && dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify({ type: 'candidate', candidate: e.candidate }));
+      }
+    };
+  }
+
+  // ─── Offerer: Create Offer ────────────────────────────────
+  async function createOffer() {
+    const btn = document.getElementById('btn-create-offer');
+    btn.disabled = true;
+    btn.innerHTML = '<span style="opacity:.6">生成中...</span>';
+    role = 'offerer';
+
+    createPC();
+
+    dc = pc.createDataChannel('chat');
+    setupDataChannel(dc);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const payload = { type: 'offer', sdp: pc.localDescription.sdp };
+    document.getElementById('offer-out').value = btoa(JSON.stringify(payload));
+    document.getElementById('field-offer-out').style.display = '';
+    document.getElementById('field-answer-in').style.display = '';
+
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> Offer を再生成';
+    toast('Offer を生成しました。コピーして相手に送ってください。');
+  }
+
+  // ─── Offerer: Apply Answer ────────────────────────────────
+  async function applyAnswer() {
+    const raw = document.getElementById('answer-in').value.trim();
+    if (!raw) { toast('Answer を貼り付けてください'); return; }
+    let desc;
+    try {
+      desc = JSON.parse(atob(raw));
+    } catch {
+      toast('Answer の形式が不正です');
+      return;
+    }
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: desc.type, sdp: desc.sdp }));
+      updateStatus('connecting');
+      toast('接続中...');
+    } catch (e) {
+      toast('Answer の適用に失敗しました: ' + e.message);
+    }
+  }
+
+  // ─── Answerer: Create Answer ──────────────────────────────
+  async function createAnswer() {
+    const raw = document.getElementById('offer-in').value.trim();
+    if (!raw) { toast('Offer を貼り付けてください'); return; }
+    let desc;
+    try {
+      desc = JSON.parse(atob(raw));
+    } catch {
+      toast('Offer の形式が不正です');
+      return;
+    }
+
+    role = 'answerer';
+    createPC();
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: desc.type, sdp: desc.sdp }));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      const payload = { type: 'answer', sdp: pc.localDescription.sdp };
+      document.getElementById('answer-out').value = btoa(JSON.stringify(payload));
+      document.getElementById('field-answer-out').style.display = '';
+      toast('Answer を生成しました。コピーして相手に送ってください。');
+    } catch (e) {
+      toast('Offer の処理に失敗しました: ' + e.message);
+      updateStatus('disconnected');
+    }
+  }
+
+  // ─── DataChannel setup ────────────────────────────────────
+  function setupDataChannel(channel) {
+    dc = channel;
+
+    dc.onopen = () => {
+      updateStatus('connected');
+      showScreen('screen-chat');
+      addSystemMsg('接続が確立されました 🎉');
+      document.getElementById('btn-send').disabled = false;
+      document.getElementById('msg-input').disabled = false;
+      document.getElementById('msg-input').focus();
+    };
+
+    dc.onmessage = async (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type === 'candidate') {
+        try { await pc.addIceCandidate(msg.candidate); } catch {}
+        return;
+      }
+      addMessage(msg.name, msg.text, false);
+    };
+
+    dc.onclose = () => {
+      if (document.getElementById('screen-chat').classList.contains('active')) {
+        addSystemMsg('相手が切断しました');
+        updateChatStatus('disconnected');
+        document.getElementById('btn-send').disabled = true;
+        document.getElementById('msg-input').disabled = true;
+      }
+    };
+
+    dc.onerror = err => {
+      console.error('DataChannel error:', err);
+    };
+  }
+
+  // ─── Messaging ────────────────────────────────────────────
+  function sendMessage() {
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!dc || dc.readyState !== 'open') {
+      toast('接続されていません');
+      return;
+    }
+    dc.send(JSON.stringify({ name: myName, text }));
+    addMessage(myName, text, true);
+    input.value = '';
+    autoResize(input);
+  }
+
+  function handleMsgKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function addMessage(name, text, isSelf) {
+    const list = document.getElementById('messages');
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (isSelf ? 'self' : 'other');
+
+    const now = new Date();
+    const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+
+    wrap.innerHTML = `
+      <div class="msg-meta">${escHtml(name)}</div>
+      <div class="msg-bubble">${escHtml(text)}</div>
+      <div class="msg-time">${time}</div>
+    `;
+    list.appendChild(wrap);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function addSystemMsg(text) {
+    const list = document.getElementById('messages');
+    const el = document.createElement('div');
+    el.className = 'msg-system';
+    el.textContent = text;
+    list.appendChild(el);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+  }
+
+  // ─── Status ───────────────────────────────────────────────
+  function updateStatus(state) {
+    const badge = document.getElementById('conn-status-badge');
+    const text  = document.getElementById('conn-status-text');
+    badge.className = 'status-badge';
+    if (state === 'connected') {
+      badge.classList.add('status-connected');
+      text.textContent = '接続済み';
+    } else if (state === 'connecting') {
+      badge.classList.add('status-connecting');
+      text.textContent = '接続中...';
+    } else {
+      badge.classList.add('status-disconnected');
+      text.textContent = '未接続';
+    }
+  }
+
+  function updateChatStatus(state) {
+    const badge = document.getElementById('chat-status-badge');
+    badge.className = 'status-badge';
+    if (state === 'connected') {
+      badge.classList.add('status-connected');
+      badge.innerHTML = '<span class="status-dot"></span><span>接続済み</span>';
+    } else {
+      badge.classList.add('status-disconnected');
+      badge.innerHTML = '<span class="status-dot"></span><span>切断</span>';
+    }
+  }
+
+  // ─── Disconnect ───────────────────────────────────────────
+  function disconnect() {
+    if (confirm('切断してセットアップ画面に戻りますか？')) {
+      if (dc) { dc.close(); dc = null; }
+      if (pc) { pc.close(); pc = null; }
+      role = null;
+      // Reset connect screen
+      document.getElementById('offer-out').value = '';
+      document.getElementById('answer-in').value = '';
+      document.getElementById('offer-in').value = '';
+      document.getElementById('answer-out').value = '';
+      document.getElementById('field-offer-out').style.display = 'none';
+      document.getElementById('field-answer-in').style.display = 'none';
+      document.getElementById('field-answer-out').style.display = 'none';
+      document.getElementById('btn-create-offer').disabled = false;
+      document.getElementById('btn-create-offer').innerHTML = `
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Offer を作る`;
+      document.getElementById('messages').innerHTML = '';
+      document.getElementById('msg-input').value = '';
+      document.getElementById('msg-input').disabled = true;
+      document.getElementById('btn-send').disabled = true;
+      updateStatus('disconnected');
+      showScreen('screen-connect');
+    }
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────
+  function copyText(id) {
+    const el = document.getElementById(id);
+    el.select();
+    el.setSelectionRange(0, 999999);
+    try {
+      navigator.clipboard.writeText(el.value).then(() => toast('コピーしました！'));
+    } catch {
+      document.execCommand('copy');
+      toast('コピーしました！');
+    }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  function toggleSection(btn, bodyId) {
+    const body = document.getElementById(bodyId);
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    if (expanded) {
+      body.classList.add('closed');
+    } else {
+      body.classList.remove('closed');
+      body.style.maxHeight = '600px';
+    }
+  }
+
+  // ─── QR Code ──────────────────────────────────────────────
+  function showQR(textareaId, title) {
+    const text = document.getElementById(textareaId).value.trim();
+    if (!text) { toast('先にテキストを生成してください'); return; }
+    const url = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&ecc=M&data=' + encodeURIComponent(text);
+    document.getElementById('qr-title').textContent = title;
+    document.getElementById('qr-img').src = url;
+    document.getElementById('qr-overlay').classList.add('open');
+  }
+
+  function closeQR(e) {
+    if (e.target === document.getElementById('qr-overlay')) {
+      document.getElementById('qr-overlay').classList.remove('open');
+    }
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+  }
+</script>
+</body>
+</html>
