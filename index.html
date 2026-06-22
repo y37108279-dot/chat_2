@@ -908,6 +908,9 @@
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
     ]
   };
 
@@ -966,18 +969,17 @@
 
   }
 
-  // ─── Vanilla ICE: 全 candidate 収集を待つ ─────────────────
+  // ─── Vanilla ICE: onicecandidate null = 収集完了 ──────────
+  // setLocalDescription を呼ぶ前に登録し、null event を待つ
   function waitForICE(pc) {
     return new Promise(resolve => {
-      if (pc.iceGatheringState === 'complete') { resolve(); return; }
-      const check = () => {
-        if (pc.iceGatheringState === 'complete') {
-          pc.removeEventListener('icegatheringstatechange', check);
+      const timer = setTimeout(resolve, 6000); // 最大6秒フォールバック
+      pc.onicecandidate = e => {
+        if (e.candidate === null) {   // null = 全 candidate 収集完了
+          clearTimeout(timer);
           resolve();
         }
       };
-      pc.addEventListener('icegatheringstatechange', check);
-      setTimeout(resolve, 4000); // 最大4秒で強制進行
     });
   }
 
@@ -993,10 +995,13 @@
     dc = pc.createDataChannel('chat');
     setupDataChannel(dc);
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    // ★ setLocalDescription より先に登録して null event を取り逃がさない
+    const iceReady = waitForICE(pc);
 
-    await waitForICE(pc); // SDP に全 candidate を含めてから出力
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);  // ← ここで ICE 収集が始まる
+
+    await iceReady; // null candidate が来るまで待機
 
     const payload = { type: 'offer', sdp: pc.localDescription.sdp };
     document.getElementById('offer-out').value = btoa(JSON.stringify(payload));
@@ -1046,9 +1051,11 @@
     try {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: desc.type, sdp: desc.sdp }));
       const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
 
-      await waitForICE(pc); // SDP に全 candidate を含めてから出力
+      // ★ setLocalDescription より先に登録して null event を取り逃がさない
+      const iceReady = waitForICE(pc);
+      await pc.setLocalDescription(answer); // ← ここで ICE 収集が始まる
+      await iceReady;
 
       const payload = { type: 'answer', sdp: pc.localDescription.sdp };
       document.getElementById('answer-out').value = btoa(JSON.stringify(payload));
